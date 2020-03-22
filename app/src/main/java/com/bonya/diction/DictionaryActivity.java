@@ -1,5 +1,6 @@
 package com.bonya.diction;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.SearchView;
 import androidx.recyclerview.widget.ItemTouchHelper;
@@ -11,6 +12,8 @@ import android.app.SearchManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -18,6 +21,8 @@ import android.view.View;
 
 import com.bonya.diction.adapters.WordsRecyclerAdapter;
 import com.bonya.diction.models.Word;
+import com.bonya.diction.threading.MyThread;
+import com.bonya.diction.util.Constants;
 import com.bonya.diction.util.FakeData;
 import com.bonya.diction.util.VerticalSpacingItemDecorator;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -27,7 +32,8 @@ import java.util.Arrays;
 
 public class DictionaryActivity extends AppCompatActivity  implements       WordsRecyclerAdapter.OnWordListener,
         View.OnClickListener,
-        SwipeRefreshLayout.OnRefreshListener
+        SwipeRefreshLayout.OnRefreshListener,
+        Handler.Callback
         {
 
 private static final String TAG = "DictionaryActivity";
@@ -41,6 +47,8 @@ private ArrayList<Word> mWords = new ArrayList<>();
 private WordsRecyclerAdapter mWordRecyclerAdapter;
 private FloatingActionButton mFab;
 private String mSearchQuery = "";
+private MyThread mMyThread;
+private Handler mMainThreadHandler = null;
 
 
 @Override
@@ -55,6 +63,8 @@ protected void onCreate(Bundle savedInstanceState) {
 
         mFab.setOnClickListener(this);
         mSwipeRefresh.setOnRefreshListener(this);
+
+        mMainThreadHandler = new Handler(this);
 
         setupRecyclerView();
         }
@@ -77,13 +87,22 @@ protected void onSaveInstanceState(Bundle outState) {
 protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
+        mMyThread = new MyThread(this, mMainThreadHandler);
+        mMyThread.start();
         retrieveWords("");
         }
+
+private void sendTestMessage(){
+        Log.d(TAG, "sendTestMessage: sending test message: " + Thread.currentThread().getName());
+        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
+        mMyThread.sendMessageToBackgroundThread(message);
+}
 
 @Override
 protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
+        mMyThread.quitThread();
         }
 
 
@@ -93,12 +112,17 @@ protected void onResume() {
         if(mSearchQuery.length() > 2){
         onRefresh();
         }
+        sendTestMessage();
         }
 
 private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-        mWords.addAll(Arrays.asList(FakeData.words));
-        }
+        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
+        Bundle bundle = new Bundle();
+        bundle.putString("title", title);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
+}
 
 
 public void deleteWord(Word word) {
@@ -107,7 +131,12 @@ public void deleteWord(Word word) {
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
 
-        }
+        Message message = Message.obtain(null, Constants.WORD_DELETE);
+        Bundle bundle = new Bundle();
+        bundle.putParcelable("word_delete", word);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
+}
 
 
 
@@ -217,5 +246,54 @@ public void onRefresh() {
         mSwipeRefresh.setRefreshing(false);
         }
 
+@Override
+public boolean handleMessage(@NonNull Message msg) {
+        switch (msg.what){
+
+                case Constants.WORDS_RETRIEVE_SUCCESS:{
+                        Log.d(TAG, "handleMessage: successfully retrieved words. This is from thread: " + Thread.currentThread().getName());
+
+                        clearWords();
+
+                        ArrayList<Word> words = new ArrayList<>(msg.getData().<Word>getParcelableArrayList("words_retrieve"));
+                        mWords.addAll(words);
+                        mWordRecyclerAdapter.getFilter().filter(mSearchQuery);
+                        break;
+                }
+
+                case Constants.WORDS_RETRIEVE_FAIL:{
+                        Log.d(TAG, "handleMessage: unable to retrieve words. This is from thread: " + Thread.currentThread().getName());
+
+                        clearWords();
+                        break;
+                }
+
+                case Constants.WORD_INSERT_SUCCESS:{
+                        Log.d(TAG, "handleMessage: successfully inserted new word. This is from thread: " + Thread.currentThread().getName());
+
+                        break;
+                }
+
+                case Constants.WORD_INSERT_FAIL:{
+                        Log.d(TAG, "handleMessage: unable to insert new word. This is from thread: " + Thread.currentThread().getName());
+
+                        break;
+                }
+
+                case Constants.WORD_DELETE_SUCCESS:{
+                        Log.d(TAG, "handleMessage: successfully deleted a word. This is from thread: " + Thread.currentThread().getName());
+
+                        break;
+                }
+
+                case Constants.WORD_DELETE_FAIL:{
+                        Log.d(TAG, "handleMessage: unable to delete word. This is from thread: " + Thread.currentThread().getName());
+
+                        break;
+                }
+
+                }
+                return false;
+                }
         }
 

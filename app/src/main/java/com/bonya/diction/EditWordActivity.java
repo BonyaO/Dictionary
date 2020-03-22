@@ -22,6 +22,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 
 import com.bonya.diction.models.Word;
+import com.bonya.diction.threading.MyThread;
 import com.bonya.diction.util.Constants;
 import com.bonya.diction.util.LinedEditText;
 import com.bonya.diction.util.Utility;
@@ -31,9 +32,9 @@ public class EditWordActivity extends AppCompatActivity implements
         View.OnTouchListener,
         GestureDetector.OnGestureListener,
         GestureDetector.OnDoubleTapListener,
-        TextWatcher
+        TextWatcher,
+        Handler.Callback
 {
-
     private static final String TAG = "EditWordActivity";
     private static final int EDIT_MODE_ENABLED = 1;
     private static final int EDIT_MODE_DISABLED = 0;
@@ -52,6 +53,8 @@ public class EditWordActivity extends AppCompatActivity implements
     private boolean mIsNewWord = false;
     private Word mWordInitial = new Word();
     private Word mWordFinal = new Word();
+    private MyThread mMyThread;
+    private Handler mMainThreadHandler = null;
 
 
     @Override
@@ -74,6 +77,8 @@ public class EditWordActivity extends AppCompatActivity implements
         mLinedEditText.setOnTouchListener(this);
         mEditTitle.addTextChangedListener(this);
 
+        mMainThreadHandler = new Handler(this);
+
         getSupportActionBar().hide();
     }
 
@@ -81,12 +86,14 @@ public class EditWordActivity extends AppCompatActivity implements
     @Override
     protected void onStart() {
         super.onStart();
+        mMyThread = new MyThread(this, mMainThreadHandler);
+        mMyThread.start();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-
+        mMyThread.quitThread();
     }
 
     @Override
@@ -111,11 +118,19 @@ public class EditWordActivity extends AppCompatActivity implements
     }
 
     public void saveNewWord() {
-
+        Message message = Message.obtain(null, Constants.WORD_INSERT_NEW);
+        Bundle bundle = new Bundle();
+        bundle.putParcelable("word_new", mWordFinal);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
     }
 
     public void updateWord() {
-
+        Message message = Message.obtain(null, Constants.WORD_UPDATE);
+        Bundle bundle = new Bundle();
+        bundle.putParcelable("word_update", mWordFinal);
+        message.setData(bundle);
+        mMyThread.sendMessageToBackgroundThread(message);
     }
 
 
@@ -354,6 +369,30 @@ public class EditWordActivity extends AppCompatActivity implements
 
     }
 
+    @Override
+    public boolean handleMessage(Message msg) {
+        switch (msg.what){
 
+            case Constants.WORD_INSERT_SUCCESS:{
+                Log.d(TAG, "handleMessage: successfully inserted a new word. This is from thread: " + getMainLooper().getThread().getName());
+
+                break;
+            }
+            case Constants.WORD_INSERT_FAIL:{
+                Log.d(TAG, "handleMessage: unable to insert a word. This is from thread: " + getMainLooper().getThread().getName());
+                break;
+            }
+            case Constants.WORD_UPDATE_SUCCESS:{
+                Log.d(TAG, "handleMessage: successfully updated a word. This is from thread: " + getMainLooper().getThread().getName());
+
+                break;
+            }
+            case Constants.WORD_UPDATE_FAIL:{
+                Log.d(TAG, "handleMessage: unable to update a word. This is from thread: " + getMainLooper().getThread().getName());
+                break;
+            }
+        }
+        return true;
+    }
 }
 
