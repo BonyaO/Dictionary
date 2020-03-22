@@ -21,7 +21,10 @@ import android.view.View;
 
 import com.bonya.diction.adapters.WordsRecyclerAdapter;
 import com.bonya.diction.models.Word;
+import com.bonya.diction.threading.DeleteWordAsyncTask;
 import com.bonya.diction.threading.MyThread;
+import com.bonya.diction.threading.RetrieveWordsAsyncTask;
+import com.bonya.diction.threading.TaskDelegate;
 import com.bonya.diction.util.Constants;
 import com.bonya.diction.util.FakeData;
 import com.bonya.diction.util.VerticalSpacingItemDecorator;
@@ -33,7 +36,7 @@ import java.util.Arrays;
 public class DictionaryActivity extends AppCompatActivity  implements       WordsRecyclerAdapter.OnWordListener,
         View.OnClickListener,
         SwipeRefreshLayout.OnRefreshListener,
-        Handler.Callback
+        Handler.Callback, TaskDelegate
         {
 
 private static final String TAG = "DictionaryActivity";
@@ -47,8 +50,8 @@ private ArrayList<Word> mWords = new ArrayList<>();
 private WordsRecyclerAdapter mWordRecyclerAdapter;
 private FloatingActionButton mFab;
 private String mSearchQuery = "";
-private MyThread mMyThread;
-private Handler mMainThreadHandler = null;
+private RetrieveWordsAsyncTask mRetrieveWordsAsyncTask;
+private DeleteWordAsyncTask mDeleteWordAsyncTask;
 
 
 @Override
@@ -64,7 +67,6 @@ protected void onCreate(Bundle savedInstanceState) {
         mFab.setOnClickListener(this);
         mSwipeRefresh.setOnRefreshListener(this);
 
-        mMainThreadHandler = new Handler(this);
 
         setupRecyclerView();
         }
@@ -87,22 +89,27 @@ protected void onSaveInstanceState(Bundle outState) {
 protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
-        mMyThread = new MyThread(this, mMainThreadHandler);
-        mMyThread.start();
+
         retrieveWords("");
         }
 
 private void sendTestMessage(){
         Log.d(TAG, "sendTestMessage: sending test message: " + Thread.currentThread().getName());
-        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
-        mMyThread.sendMessageToBackgroundThread(message);
+//        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
+//        mMyThread.sendMessageToBackgroundThread(message);
 }
 
 @Override
 protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
-        mMyThread.quitThread();
+
+        if(mRetrieveWordsAsyncTask != null){
+                mDeleteWordAsyncTask.cancel(true);
+        }
+        if(mDeleteWordAsyncTask != null){
+                mRetrieveWordsAsyncTask.cancel(true);
+        }
         }
 
 
@@ -117,11 +124,13 @@ protected void onResume() {
 
 private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
-        Bundle bundle = new Bundle();
-        bundle.putString("title", title);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+
+        if(mRetrieveWordsAsyncTask != null){
+                mRetrieveWordsAsyncTask.cancel(true);
+        }
+
+       mRetrieveWordsAsyncTask = new RetrieveWordsAsyncTask(this, this);
+       mRetrieveWordsAsyncTask.execute(title);
 }
 
 
@@ -131,11 +140,13 @@ public void deleteWord(Word word) {
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
 
-        Message message = Message.obtain(null, Constants.WORD_DELETE);
-        Bundle bundle = new Bundle();
-        bundle.putParcelable("word_delete", word);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+        if(mDeleteWordAsyncTask != null){
+                mDeleteWordAsyncTask.cancel(true);
+        }
+
+        mDeleteWordAsyncTask = new DeleteWordAsyncTask(this);
+        mDeleteWordAsyncTask.execute(word);
+
 }
 
 
@@ -294,6 +305,14 @@ public boolean handleMessage(@NonNull Message msg) {
 
                 }
                 return false;
+                }
+
+                @Override
+                public void onWordsReceived(ArrayList<Word> words) {
+                        clearWords();
+
+                        mWords.addAll(words);
+                        mWordRecyclerAdapter.notifyDataSetChanged();
                 }
         }
 
