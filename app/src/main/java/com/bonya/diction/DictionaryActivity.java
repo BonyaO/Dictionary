@@ -13,6 +13,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.util.Log;
 import android.view.Menu;
@@ -21,7 +22,9 @@ import android.view.View;
 
 import com.bonya.diction.adapters.WordsRecyclerAdapter;
 import com.bonya.diction.models.Word;
+import com.bonya.diction.threading.DeleteWordRunnable;
 import com.bonya.diction.threading.MyThread;
+import com.bonya.diction.threading.RetrieveWordsRunnable;
 import com.bonya.diction.util.Constants;
 import com.bonya.diction.util.FakeData;
 import com.bonya.diction.util.VerticalSpacingItemDecorator;
@@ -47,8 +50,8 @@ private ArrayList<Word> mWords = new ArrayList<>();
 private WordsRecyclerAdapter mWordRecyclerAdapter;
 private FloatingActionButton mFab;
 private String mSearchQuery = "";
-private MyThread mMyThread;
 private Handler mMainThreadHandler = null;
+private HandlerThread mHandlerThread;
 
 
 @Override
@@ -87,22 +90,27 @@ protected void onSaveInstanceState(Bundle outState) {
 protected void onStart() {
         Log.d(TAG, "onStart: called.");
         super.onStart();
-        mMyThread = new MyThread(this, mMainThreadHandler);
-        mMyThread.start();
+//        mMyThread = new MyThread(this, mMainThreadHandler);
+//        mMyThread.start();
+
+
+        mHandlerThread = new HandlerThread("DictionaryActivity HandlerThread");
+        mHandlerThread.start();
         retrieveWords("");
         }
 
 private void sendTestMessage(){
         Log.d(TAG, "sendTestMessage: sending test message: " + Thread.currentThread().getName());
-        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
-        mMyThread.sendMessageToBackgroundThread(message);
+        //Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
+        //mMyThread.sendMessageToBackgroundThread(message);
 }
 
 @Override
 protected void onStop() {
         Log.d(TAG, "onStop: called.");
         super.onStop();
-        mMyThread.quitThread();
+
+        mHandlerThread.quit();
         }
 
 
@@ -117,11 +125,10 @@ protected void onResume() {
 
 private void retrieveWords(String title) {
         Log.d(TAG, "retrieveWords: called.");
-        Message message = Message.obtain(null, Constants.WORDS_RETRIEVE);
-        Bundle bundle = new Bundle();
-        bundle.putString("title", title);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+
+        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
+        backgroundHandler.post(new RetrieveWordsRunnable(this, mMainThreadHandler, title));
+
 }
 
 
@@ -131,11 +138,9 @@ public void deleteWord(Word word) {
         mWordRecyclerAdapter.getFilteredWords().remove(word);
         mWordRecyclerAdapter.notifyDataSetChanged();
 
-        Message message = Message.obtain(null, Constants.WORD_DELETE);
-        Bundle bundle = new Bundle();
-        bundle.putParcelable("word_delete", word);
-        message.setData(bundle);
-        mMyThread.sendMessageToBackgroundThread(message);
+        Handler backgroundHandler = new Handler(mHandlerThread.getLooper());
+        backgroundHandler.post(new DeleteWordRunnable(this, mMainThreadHandler, word));
+
 }
 
 
